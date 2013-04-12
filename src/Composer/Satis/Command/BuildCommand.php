@@ -367,6 +367,13 @@ EOT
 
             if (isset($mirroredRepositories[$name])) {
                 $package->setSourceUrl($repositoryUrl);
+
+                if (!isset($config['archive']['directory'])) {
+                    $package->setDistType(null);
+                    $package->setDistUrl(null);
+                    $package->setDistSha1Checksum(null);
+                    $package->setDistReference(null);
+                }
                 continue;
             } else {
                 $mirroredRepositories[$name] = true;
@@ -405,6 +412,13 @@ EOT
             }
 
             $package->setSourceUrl($repositoryUrl);
+
+            if (!isset($config['archive']['directory'])) {
+                $package->setDistType(null);
+                $package->setDistUrl(null);
+                $package->setDistSha1Checksum(null);
+                $package->setDistReference(null);
+            }
         }
     }
 
