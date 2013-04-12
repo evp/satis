@@ -290,18 +290,6 @@ EOT
                 continue;
             }
 
-            if (isset($config['scm-manager']['repository-path']) && in_array($package->getSourceType(), array('github', 'git-bitbucket', 'git', 'hg-bitbucket', 'hg', 'svn'))) {
-                $output->writeln(sprintf("<info>Skipping '%s' (is vcs)</info>", $name));
-
-                $package->setDistType(null);
-                $package->setDistUrl(null);
-                $package->setDistSha1Checksum(null);
-                $package->setDistReference(null);
-
-                continue;
-            }
-
-
             $output->writeln(sprintf("<info>Dumping '%s'.</info>", $name));
 
             $path = $archiveManager->archive($package, $format, $directory);
