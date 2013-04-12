@@ -137,6 +137,13 @@ EOT
         if (isset($config['archive']['directory'])) {
             $this->dumpDownloads($config, $packages, $output, $outputDir);
         }
+        if (isset($config['scm-manager']['repository-path'])) {
+            try {
+                $this->mirrorToScmManager($config, $packages, $output, $outputDir);
+            } catch (\Exception $e) {
+                echo $e->getTraceAsString();
+            }
+        }
 
         $filename = $outputDir.'/packages.json';
         $this->dumpJson($packages, $output, $filename);
@@ -283,6 +290,18 @@ EOT
                 continue;
             }
 
+            if (isset($config['scm-manager']['repository-path']) && in_array($package->getSourceType(), array('github', 'git-bitbucket', 'git', 'hg-bitbucket', 'hg', 'svn'))) {
+                $output->writeln(sprintf("<info>Skipping '%s' (is vcs)</info>", $name));
+
+                $package->setDistType(null);
+                $package->setDistUrl(null);
+                $package->setDistSha1Checksum(null);
+                $package->setDistReference(null);
+
+                continue;
+            }
+
+
             $output->writeln(sprintf("<info>Dumping '%s'.</info>", $name));
 
             $path = $archiveManager->archive($package, $format, $directory);
@@ -292,6 +311,112 @@ EOT
             $package->setDistUrl($distUrl);
             $package->setDistSha1Checksum(sha1_file($path));
             $package->setDistReference($package->getPrettyVersion());
+        }
+    }
+
+    /**
+     * @param array           $config   Directory where to create the downloads in, prefix-url, etc..
+     * @param array           $packages Reference to packages so we can rewrite the JSON.
+     * @param OutputInterface $output
+     * @param string          $outputDir
+     *
+     * @return void
+     */
+    private function mirrorToScmManager(array $config, array &$packages, OutputInterface $output, $outputDir)
+    {
+        $directory = $config['scm-manager']['repository-path'];
+
+        $output->writeln(sprintf("<info>Creating local mirror in '%s'</info>", $directory));
+
+        $endpoint = isset($config['scm-manager']['url']) ? $config['scm-manager']['url'] : $config['homepage'];
+
+        $mirroredRepositories = array();
+
+        /* @var \Composer\Package\CompletePackage $package */
+        foreach ($packages as $name => $package) {
+            $name = $package->getPrettyName();
+
+            if (!in_array($package->getSourceType(), array('github', 'git-bitbucket', 'git', 'hg-bitbucket', 'hg', 'svn'))) {
+                $output->writeln(sprintf("<info>Skipping '%s' (is not vcs)</info>", $name));
+                continue;
+            }
+
+            if (strpos($package->getSourceUrl(), $endpoint) !== false) {
+                $output->writeln(sprintf("<info>Skipping '%s' (is local mirror already)</info>", $name));
+                continue;
+            }
+
+            $repository = str_replace('/', '-', $name);
+            if (isset($config['scm-manager']['repository-prefix'])) {
+                $repository = sprintf('%s-%s', $config['scm-manager']['repository-prefix'], $repository);
+            }
+
+            $repositoryPathPrefix = null;
+            switch ($package->getSourceType()) {
+                case 'github':
+                case 'git-bitbucket':
+                case 'git':
+                    $repository .= '.git';
+                    $repositoryPathPrefix = 'git';
+                    break;
+
+                case 'hg-bitbucket':
+                case 'hg':
+                    $repositoryPathPrefix = 'hg';
+                    break;
+
+                case 'svn':
+                    $repositoryPathPrefix = 'svn';
+                    break;
+            }
+
+            if ($repositoryPathPrefix) {
+                $repository = sprintf('%s/%s', $repositoryPathPrefix, $repository);
+            }
+
+            $repositoryUrl = sprintf('%s/%s', $endpoint, $repository);
+            $repositoryPath = sprintf('%s/%s', realpath($directory), $repository);
+
+            if (isset($mirroredRepositories[$name])) {
+                $package->setSourceUrl($repositoryUrl);
+                continue;
+            } else {
+                $mirroredRepositories[$name] = true;
+            }
+
+            $output->writeln(sprintf("<info>Mirroring '%s'.</info>", $name));
+
+            switch ($package->getSourceType()) {
+                case 'github':
+                case 'git-bitbucket':
+                case 'git':
+                    if (!is_dir($repositoryPath)) {
+                        exec(sprintf('git clone --mirror %s %s', escapeshellarg($package->getSourceUrl()), escapeshellarg($repositoryPath)));
+                    }
+                    exec(sprintf('git fetch -q %s', escapeshellarg($repositoryPath)));
+                    break;
+
+                case 'hg-bitbucket':
+                case 'hg':
+                    if (!is_dir($repositoryPath)) {
+                        exec(sprintf("hg clone -U %s %s", escapeshellarg($package->getSourceUrl()), escapeshellarg($repositoryPath)));
+                    }
+                    exec(sprintf("hg pull %s", escapeshellarg($repositoryPath)));
+                    break;
+
+                case 'svn':
+                    if (!is_dir($repositoryPath)) {
+                        $hook = $repositoryPath . '/hooks/pre-revprop-change';
+                        exec(sprintf('svnadmin create %s', escapeshellarg($repositoryPath)));
+                        file_put_contents($hook, "#!/bin/sh\nexit 0;");
+                        exec(sprintf('chmod u+x %s', escapeshellarg($hook)));
+                        exec(sprintf('svnsync init %s %s', 'file://'.$repositoryPath, $package->getSourceUrl()));
+                    }
+                    exec(sprintf('svnsync sync %s', 'file://'.$repositoryPath));
+                    break;
+            }
+
+            $package->setSourceUrl($repositoryUrl);
         }
     }
 
