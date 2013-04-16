@@ -388,7 +388,7 @@ EOT
                     if (!is_dir($repositoryPath)) {
                         exec(sprintf('git clone --mirror %s %s', escapeshellarg($package->getSourceUrl()), escapeshellarg($repositoryPath)));
                     }
-                    exec(sprintf('git fetch -q %s', escapeshellarg($repositoryPath)));
+                    exec(sprintf('cd %s && git fetch', escapeshellarg($repositoryPath)));
                     break;
 
                 case 'hg-bitbucket':
